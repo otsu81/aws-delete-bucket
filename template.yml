@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Boilerplate template for a self-deleting S3 bucket when CFN stack is deleted
+
+Parameters:
+  Bucket:
+    Type: String
+    Default: testbucket
+    Description: name of the bucket
+  RoleName:
+    Type: String
+    Default: S3BucketRole
+    Description: Name of the role
+
+Resources:
+  ServerlessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: The IAM role allowing the Axis Lunch scraper to function
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: DdbS3Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Join
+                    - ""
+                    - - !GetAtt S3Bucket.Arn
+                      - "/*"
+                  - !GetAtt S3Bucket.Arn
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref Bucket
+
+  BucketCleanup:
+    Type: AWS::Serverless::Function # Helper function to empty S3 bucket on CFN stack delete
+    Properties:
+      CodeUri: app/
+      Handler: main.handler
+      Runtime: python3.8
+      Timeout: 900
+      Role: !GetAtt ServerlessRole.Arn
+      Environment:
+        Variables:
+          LOGLEVEL: INFO
+
+  BucketCleanupOnDelete:
+    Type: Custom::BucketCleanup
+    DependsOn: S3Bucket
+    Properties:
+      ServiceToken: !GetAtt BucketCleanup.Arn
+      BucketName: !Ref Bucket
